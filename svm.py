@@ -1,11 +1,12 @@
-
 import numpy as np
 import json
 import pandas as pd
 from pandas.io.json import json_normalize
 from statistics import mean
 import argparse
+import prepare_data #create fold embeddings
 
+from collections import defaultdict
 from gensim.models.keyedvectors import KeyedVectors
 from keras.preprocessing import text, sequence
 from keras import layers, models, optimizers
@@ -21,6 +22,9 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import precision_recall_fscore_support
 from sklearn.metrics import confusion_matrix
 
+from math import ceil
+
+import torchtext.data
 import sys
 import os
 import time
@@ -71,33 +75,108 @@ fscore_val = []
 
 # In[14]:
 
-def create_folds_embeddings(self, embeddings, args):
-    emb_init_values = []
-    exist_word_vec = 0
-    unexist_word_vec = 0
-    embeddings.embed_dim = 300
-    
-    args.embeddings_dim = embeddings.embed_dim
-    for i in range(self.idx_to_vocab.__len__()): #untuk memastikan urut
-      word = self.idx_to_vocab.get(i)
-      if word == '<unk>':
-        emb_init_values.append(np.random.uniform(-0.25, 0.25, args.embeddings_dim).astype('float32'))
-      elif word == '<pad>':
-        emb_init_values.append(np.zeros(args.embeddings_dim).astype('float32'))
-      elif word in embeddings.word2vec.wv.vocab:
-        emb_init_values.append(embeddings.word2vec.wv.word_vec(word))
-        exist_word_vec +=1
-      else:
-        emb_init_values.append(np.random.uniform(-0.25, 0.25, args.embeddings_dim).astype('float32'))
-        unexist_word_vec += 1
-    
-    print('--- WORD VECTOR STATISTIC ---')
-    print('Exist Word in vector   : {} word'.format(exist_word_vec))
-    print('Unexist Word in vector : {} word'.format(unexist_word_vec))
-    print('')
+def cross_validate(fold, data, embeddings, args):
+  actual_counts    = defaultdict(int)
+  predicted_counts = defaultdict(int)
+  match_counts     = defaultdict(int)
 
-    return emb_init_values   
+  split_width = int(ceil(len(data.examples)/fold))
+
+  for i in range(fold):
+    print('FOLD [{}]'.format(i + 1))
+
+    train_examples = data.examples[:] 
+    del train_examples[i*split_width:min(len(data.examples), (i+1)*split_width)]
+    test_examples = data.examples[i*split_width:min(len(data.examples), (i+1)*split_width)]
+
+    total_len = len(data.examples)
+    train_len = len(train_examples)
+    test_len  = len(test_examples)
+
+    train_counts = defaultdict(int)
+    test_counts  = defaultdict(int)
+
+    for example in train_examples:
+      train_counts[example.label] += 1
+
+    for example in test_examples:
+      test_counts[example.label] += 1
+
+    output['fold_{}'.format(i+1)]['total_examples'] = total_len
+    output['fold_{}'.format(i+1)]['detail_examples'] = []
+   
+    # Training Label
+    high_pos = train_counts['Highly_Positive']
+    pos = train_counts['Positive']
+    neg = train_counts['Negative']
+    high_neg = train_counts['Highly_Negative']
+    neu = train_counts['Neutral']
+    output['fold_{}'.format(i+1)]['detail_examples'].append({
+      'examples': 'train',
+      'total': train_len,
+      'high_positive': high_pos,
+      'positive': pos,
+      'neutral': neu,
+      'negative': neg,
+      'high_negative': high_neg,
+    })
+
+    # Testing Label
+    high_pos = test_counts['Highly_Positive']
+    pos = test_counts['Positive']
+    neg = test_counts['Negative']
+    high_neg = test_counts['Highly_Negative']
+    neu = test_counts['Neutral']
+
+    output['fold_{}'.format(i+1)]['detail_examples'].append({
+      'examples': 'test',
+      'total': test_len,
+      'high_positive': high_pos,
+      'positive': pos,
+      'neutral': neu,
+      'negative': neg,
+      'high_negative': high_neg,
+    })
     
+    fields = data.fields
+    train_set = torchtext.data.Dataset(examples=train_examples, fields=fields)
+    test_set  = torchtext.data.Dataset(examples=test_examples, fields=fields)
+
+    # Building the vocabs
+    text_field  = None
+    label_field = None
+
+    for field_name, field_object in fields:
+      if field_name == 'text':
+        text_field = field_object
+      elif field_name == 'label':
+        label_field = field_object
+    
+    text_field.build_vocab(train_set)
+    label_field.build_vocab(train_set)
+
+    data.vocab_to_idx = dict(text_field.vocab.stoi)
+    data.idx_to_vocab = {v: k for k, v in data.vocab_to_idx.items()}
+
+    data.label_to_idx = dict(label_field.vocab.stoi)
+    data.idx_to_label = {v: k for k, v in data.label_to_idx.items()}
+
+    embed_num = len(text_field.vocab)
+    label_num = len(label_field.vocab)
+
+    # Loading pre-trained embeddings
+    emb_init_values = np.array(data.create_folds_embeddings(embeddings, args))
+
+    # Ini gunanya untuk mengukur training performance dari model
+    # (lawannya generalization performance, forget what it's called)
+    train_bulk_dataset = train_set,
+    train_bulk__size   = len(train_set),
+    train_bulk_iter    = torchtext.data.Iterator.splits(datasets=train_bulk_dataset, 
+                                                        batch_sizes=train_bulk__size,
+                                                        device=-1, 
+                                                        repeat=False)[0]
+
+
 for train_index, test_index in kf.split(X):
     
     X_trainSet, X_testSet = X[train_index], X[test_index]
@@ -149,10 +228,13 @@ for train_index, test_index in kf.split(X):
 
     elif args.model ==models['w2v']:
         embedding_index = {}
-        wv = KeyedVectors.load_word2vec_format(embeddings_path, binary=False, unicode_error='ignore')
+       # wv = KeyedVectors.load_word2vec_format(embeddings_path, binary=False, unicode_error='ignore')
         embeddings_dim = 300
             
     # Start Train
+    nested_dict = lambda : defaultdict(nested_dict)
+    output = nested_dict()
+
     classifier = svm.SVC(kernel='linear').fit(train_vectors, train_labels)
     prediction = classifier.predict(test_vectors)
     
