@@ -12,6 +12,7 @@ from pandas.io.json import json_normalize
 from collections import defaultdict
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
 from gensim.models.keyedvectors import KeyedVectors
+from gensim.models.wrappers import FastText
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
@@ -24,7 +25,7 @@ from sklearn.metrics import make_scorer, precision_score, recall_score, f1_score
 # config
 STOPWORDS_FILE = 'stopwords-id.txt'
 RAW_DATASET_FILE = 'dataset_labeled.json'
-WORD2VEC_C_FILE = 'word_embedding_cbow.bin'
+WORD2VEC_C_FILE = '../model word embeddings/model_arif.bin'
 MODEL_OUTPUT_FILE = 'model.pkl'
 
 
@@ -33,7 +34,7 @@ class TfidfEmbeddingVectorizer(BaseEstimator, TransformerMixin):
     def __init__(self, word2vec):
         self.word2vec = word2vec
         self.word2weight = None
-        self.dim = len(word2vec.itervalues().next())
+        self.dim = len(word2vec.values())
 
     def fit(self, X, y=None):
         tfidf = TfidfVectorizer(analyzer=lambda x: x)
@@ -204,7 +205,7 @@ if __name__ == '__main__':
     }
 
     parser = argparse.ArgumentParser(description='Train and evaluate Indonesian text classifier')
-    parser.add_argument('-m', '--model', default=models['tfidf-lsvm'], choices=models.values(), help='Pipeline model')
+    parser.add_argument('-m', '--model', default=models['w2v-rbfsvm'], choices=models.values(), help='Pipeline model')
     parser.add_argument('-o', '--output', help='path to save the trained model pickle file (model.pkl)')
     parser.add_argument('-s', '--silent', action='store_true', default=False, help='display no log in console')
     args = parser.parse_args()
@@ -228,7 +229,6 @@ if __name__ == '__main__':
         preprocessor = SimpleIndonesianPreprocessor(verbose=verbose)
         vectorizer = TfidfVectorizer(tokenizer=identity, preprocessor=None, lowercase=False)
         classifier = SGDClassifier(max_iter=100, tol=None)    
-    
 
     # pipeline model 2
     elif args.model == models['w2v-rbfsvm']:
@@ -237,6 +237,7 @@ if __name__ == '__main__':
         if verbose:
             print('Loading word2vec file {}..'.format(WORD2VEC_C_FILE))
         wv = KeyedVectors.load_word2vec_format(WORD2VEC_C_FILE, binary=False, unicode_errors="ignore")
+        # wv = FastText.load_fasttext_format(WORD2VEC_C_FILE)
         if verbose:
             print('Indexing word2vec file..'.format(WORD2VEC_C_FILE))
         w2v = dict(zip(wv.index2word, wv.syn0))
