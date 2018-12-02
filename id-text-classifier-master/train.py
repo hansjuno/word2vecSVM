@@ -24,8 +24,8 @@ from sklearn.metrics import make_scorer, precision_score, recall_score, f1_score
 
 # config
 STOPWORDS_FILE = 'stopwords-id.txt'
-RAW_DATASET_FILE = 'dataset_labeled.json'
-WORD2VEC_C_FILE = '../model word embeddings/model_arif.bin'
+RAW_DATASET_FILE = 'sentimen_own_full_repairedcobasal.json'
+WORD2VEC_C_FILE = 'wiki.id.vec'
 MODEL_OUTPUT_FILE = 'model.pkl'
 
 
@@ -145,6 +145,7 @@ def build_and_evaluate(X_raw, y_raw, preprocessor, vectorizer, classifier, cv=No
     # Label encode the targets
     labels = LabelEncoder()
     y = labels.fit_transform(y_raw)
+    print(y)
 
     # Begin evaluation
     if verbose: 
@@ -152,17 +153,25 @@ def build_and_evaluate(X_raw, y_raw, preprocessor, vectorizer, classifier, cv=No
 
     # cross validation    
     scorer = {
+      #'suppos_recall': make_scorer(recall_score, pos_label=4),
       'pos_recall': make_scorer(recall_score, pos_label=1),
+      #'net_recall': make_scorer(recall_score, pos_label=2),
       'neg_recall': make_scorer(recall_score, pos_label=0),
+      #'supneg_recall': make_scorer(recall_score, pos_label=0),
+      #'suppos_precision': make_scorer(precision_score, pos_label=4),
       'pos_precision': make_scorer(precision_score, pos_label=1),
+      #'net_precision': make_scorer(precision_score, pos_label=2),
       'neg_precision': make_scorer(precision_score, pos_label=0),
+      #'supneg_recall': make_scorer(precision_score, pos_label=0),
     }
     cv_results = cross_validate(classifier, X, y=y, scoring=scorer, cv=cv)
     
     # calculate f1
+    #cv_results['test_suppos_f1'] = np.array([ 2 * cv_results['test_suppos_recall'][i] * cv_results['test_suppos_precision'][i] / (cv_results['test_suppos_recall'][i] + cv_results['test_suppos_precision'][i]) for i in range(len(cv_results['test_suppos_recall'])) ])
     cv_results['test_pos_f1'] = np.array([ 2 * cv_results['test_pos_recall'][i] * cv_results['test_pos_precision'][i] / (cv_results['test_pos_recall'][i] + cv_results['test_pos_precision'][i]) for i in range(len(cv_results['test_pos_recall'])) ])
-
+    #cv_results['test_net_f1'] = np.array([ 2 * cv_results['test_net_recall'][i] * cv_results['test_net_precision'][i] / (cv_results['test_net_recall'][i] + cv_results['test_net_precision'][i]) for i in range(len(cv_results['test_net_recall'])) ])
     cv_results['test_neg_f1'] = np.array([ 2 * cv_results['test_neg_recall'][i] * cv_results['test_neg_precision'][i] / (cv_results['test_neg_recall'][i] + cv_results['test_neg_precision'][i]) for i in range(len(cv_results['test_neg_recall'])) ])
+    #cv_results['test_supneg_f1'] = np.array([ 2 * cv_results['test_supneg_recall'][i] * cv_results['test_supneg_precision'][i] / (cv_results['test_supneg_recall'][i] + cv_results['test_supneg_precision'][i]) for i in range(len(cv_results['test_supneg_recall'])) ])
 
     if verbose:
         print('Classifier: {}'.format(type(classifier).__name__))
@@ -213,15 +222,15 @@ if __name__ == '__main__':
     # load dataset
     X = []
     y = []  
-    with open(RAW_DATASET_FILE, 'r') as f:
+    with open(RAW_DATASET_FILE, 'r', encoding='utf-8') as f:
         dataset = json.load(f)
-        df = pd.io.json.json_normalize(data=dataset)
+        df = pd.io.json.json_normalize(data=dataset, record_path=['RECORDS'])
         data_matrix = df.as_matrix()
         for line in data_matrix:
-            y.append(line[0])
-            X.append(line[1])
+            y.append(line[1])
+            X.append(line[4])
+    print("baca label awal", y)     
             
-
     verbose = not args.silent        
 
     # pipeline model 1
@@ -249,4 +258,4 @@ if __name__ == '__main__':
         sys.exit()
 
     # build and evaluate model
-    build_and_evaluate(X, y, preprocessor, vectorizer, classifier, cv=8, outpath=args.output, verbose=verbose)
+    build_and_evaluate(X, y, preprocessor, vectorizer, classifier, cv=10, outpath=args.output, verbose=verbose)
